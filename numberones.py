@@ -67,7 +67,16 @@ def find_number_one(html):
     percentage = float(percentages[0].text.strip()[:-1])
 
     players = soup.findAll("span", {"class": "songTop pp"})
-    player = str(players[0])[str(players[0]).find("> ") + 2:str(players[0]).find("</span>")]
+    playerName = str(players[0])[str(players[0]).find("> ") + 2:str(players[0]).find("</span>")]
+
+    players = soup.findAll("td", {"class": "player"})
+    # print(players[0])
+    delim = "href=\""
+    pid = str(players[0])[str(players[0]).find(delim) + len(delim):]
+    pid = pid[:pid.find("\"")]
+    playerLink = "https://scoresaber.com" + pid
+
+    player = "=HYPERLINK(\"" + playerLink + "\", \"" + playerName + "\")"
 
     return player, percentage
 
@@ -93,7 +102,9 @@ def get_data(response):
         if song["ranked"] == 1:
             songs_calculated+=1
             songInfo = []
-            songInfo.append(song["name"])
+            uid = song["uid"]
+            url = "https://scoresaber.com/leaderboard/" + str(uid)
+            songInfo.append("=HYPERLINK(\"" + url + "\", \"" + song["name"] + "\")")
             songInfo.append(song["levelAuthorName"])
             songInfo.append(get_diff(song["diff"]))
             songInfo.append(song["stars"])
@@ -143,7 +154,7 @@ def update_spreadsheet(rows):
         }
     ]
     body = {
-        'valueInputOption': 'RAW',
+        'valueInputOption': 'USER_ENTERED',
         'data': data
     }
 
