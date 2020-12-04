@@ -5,7 +5,9 @@ from urllib.request import urlopen, Request
 import lxml
 from bs4 import BeautifulSoup
 import os
+import time
 from time import sleep
+import requests
 
 import pickle
 import os.path
@@ -23,19 +25,67 @@ PAGE_LIMIT = 1000
 FILE_NAME = "raw_pp.json"
 # time in seconds
 WAIT_BETWEEN_LEADERBOARD_CALLS = 1
-WAIT_BETWEEN_API_CALLS = 5
+WAIT_BETWEEN_API_CALLS = 1
 BACKOFF_TIME = 60 * 10
 songs_calculated = 0
 
-fields = ["Name", "Mapper", "Difficulty", "Star", "Player", "Acc"]
+fields = ["Name", "Mapper", "Difficulty", "Star", "Player", "Acc", "Date"]
 
 SHEET_NAME = "numberones.csv"
 
 SHEET_ID = "1c9ZNa5G4o9DI54W4gh_97JmwscoErLz0L0yyH1to2dQ"
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-MAIN_RANGE = "Main!A2:F"
+MAIN_RANGE = "Main!A2:G"
 TIME_RANGE = "Info!B1"
+
+SCORE_SABER_URL = "https://new.scoresaber.com"
+URL_PREFIX = SCORE_SABER_URL + "/api/player/"
+URL_RANKED = "/scores/top/"
+
+class RankedMap:
+    def __init__(self, name, mapper, difficulty):
+        self.name = name
+        self.mapper = mapper
+        self.difficulty = difficulty
+
+def sleep_until(sleep_time):
+    current_time = datetime.now().timestamp()
+    if (sleep_time < current_time):
+        return
+    print("Sleeping for {} seconds".format(sleep_time - current_time + 1))
+    time.sleep(sleep_time - current_time + 1)
+    print("Done sleeping")
+
+def get_response_rate_limited(url):
+    response = requests.get(url)
+    if "x-ratelimit-remaining" not in response.headers:
+        return response
+    # Fuzzing this a bit cause otherwise it rate limits early
+    if (int(response.headers["x-ratelimit-remaining"])) <= 2:
+        sleep_until(int(response.headers["x-ratelimit-reset"]))
+    return response
+
+# strip extraneous data from scoresaber difficulty
+def get_diff(difficulty):
+    return difficulty[1:difficulty.rfind("_")]
+
+def get_number_ones(id):
+    url = URL_PREFIX + str(id) + URL_RANKED
+    page = 1
+    done = False
+    l = []
+    while not done:
+        response = get_response_rate_limited(url + str(page))
+        for song in response.json()["scores"]:
+            if song["pp"] <= 0:
+                done = True
+                break
+
+            if song["rank"] == 1:
+                l.append((song["songName"], song["levelAuthorName"], get_diff(song["difficultyRaw"]), song["timeSet"]))
+        page+=1
+    return l
 
 def open_url(url):
     done = False
@@ -50,10 +100,6 @@ def open_url(url):
                 print(e)
             sleep(BACKOFF_TIME)
     return response
-
-# strip extraneous data from scoresaber difficulty
-def get_diff(difficulty):
-    return difficulty[1:difficulty.rfind("_")]
 
 # write the json data to the output file
 def write_data(data, file):
@@ -116,6 +162,7 @@ def get_data(response):
         sleep(WAIT_BETWEEN_LEADERBOARD_CALLS)
     if len(api_data["songs"]) == 0:
         done = True
+
     return (data, done)
 
 def make_spreadsheet(rows):
@@ -170,6 +217,42 @@ def update_spreadsheet(rows):
     sheet.values().update(spreadsheetId=SHEET_ID, range=TIME_RANGE,
                             valueInputOption="RAW", body=body).execute()
 
+def decode_id(hyperlink):
+    hyperlink = hyperlink[hyperlink.find("\"") + 1:]
+    hyperlink = hyperlink[:hyperlink.find("\"")]
+    hyperlink = hyperlink[hyperlink.rfind("/") + 1:]
+    return hyperlink
+
+def decode_player(hyperlink):
+    hyperlink = hyperlink[:hyperlink.rfind("\"")]
+    hyperlink = hyperlink[hyperlink.rfind("\"") + 1:]
+    return hyperlink
+
+def decode_song(hyperlink):
+    hyperlink = hyperlink[:hyperlink.rfind("\"")]
+    hyperlink = hyperlink[hyperlink.rfind("\"") + 1:]
+    return hyperlink
+
+def get_date(unfiltered_date):
+    return unfiltered_date[:unfiltered_date.find("T")]
+
+def get_dates(data):
+    players = set()
+    for song in data:
+        # print(song)
+        hyperlink = song[4]
+        players.add((decode_player(hyperlink), decode_id(hyperlink)))
+    print(players)
+    playerRankedOnes = {}
+    for player in players:
+        playerRankedOnes[player[0]] = get_number_ones(player[1])
+    for song in data:
+        player = decode_player(song[4])
+        for numberone in playerRankedOnes[player]:
+            if numberone[0] == decode_song(song[0]) and numberone[1] == song[1] and numberone[2] == song[2]:
+                song.append(get_date(numberone[3]))
+    return data
+
 def main():
     data = []
 
@@ -185,6 +268,8 @@ def main():
         # back off for a bit
         sleep(WAIT_BETWEEN_API_CALLS)
         page+=1
+
+    data = get_dates(data)
     return data
 
 if __name__ == "__main__":
