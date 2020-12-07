@@ -17,7 +17,6 @@ from google.auth.transport.requests import Request
 
 from datetime import datetime
 
-
 # too lazy to split into modules, so just gonna use one script for everything :)
 DEBUG = True
 STATUS_UPDATES = True
@@ -55,7 +54,7 @@ def sleep_until(sleep_time):
         return
     print("Sleeping for {} seconds".format(sleep_time - current_time + 1))
     time.sleep(sleep_time - current_time + 1)
-    print("Done sleeping")
+    # print("Done sleeping")
 
 def get_response_rate_limited(url):
     response = requests.get(url)
@@ -86,7 +85,7 @@ def get_number_ones(id, rankOnes):
                 break
 
             if song["leaderboardId"] in rankOnes:
-                l.append((song["songName"], song["levelAuthorName"], get_diff(song["difficultyRaw"]), song["timeSet"]))
+                l.append((song["leaderboardId"], song["timeSet"]))
                 if len(rankOnes) == len(l):
                     done = True
         page+=1
@@ -252,14 +251,17 @@ def get_dates(data):
     playerRankedOnes = {}
     for song in data:
         player = decode_player(song[4])
-        playerRankedOnes[player] = playerRankedOnes.get(player, []) + [song[6]]
+        playerRankedOnes[player] = playerRankedOnes.get(player, []) + [song[len(song) - 1]]
+    i = 0
     for player in players:
+        i+=1
+        print("Player ", i, "/", len(players))
         playerRankedOnes[player[0]] = get_number_ones(player[1], playerRankedOnes[player[0]])
     for song in data:
         player = decode_player(song[4])
         for numberone in playerRankedOnes[player]:
-            if numberone[0] == decode_song(song[0]) and numberone[1] == song[1] and numberone[2] == song[2]:
-                song[len(song) - 1] = get_date(numberone[3])
+            if numberone[0] == song[len(song) - 1]:
+                song[len(song) - 1] = get_date(numberone[1])
     return data
 
 def main():
