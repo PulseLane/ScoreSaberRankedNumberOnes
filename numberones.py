@@ -70,7 +70,10 @@ def get_response_rate_limited(url):
 def get_diff(difficulty):
     return difficulty[1:difficulty.rfind("_")]
 
-def get_number_ones(id):
+def get_hyperlink_friendly(s):
+    return s.replace('"', '""')
+
+def get_number_ones(id, rankOnes):
     url = URL_PREFIX + str(id) + URL_RANKED
     page = 1
     done = False
@@ -82,8 +85,10 @@ def get_number_ones(id):
                 done = True
                 break
 
-            if song["rank"] == 1:
+            if song["leaderboardId"] in rankOnes:
                 l.append((song["songName"], song["levelAuthorName"], get_diff(song["difficultyRaw"]), song["timeSet"]))
+                if len(rankOnes) == len(l):
+                    done = True
         page+=1
     return l
 
@@ -122,7 +127,7 @@ def find_number_one(html):
     pid = pid[:pid.find("\"")]
     playerLink = "https://scoresaber.com" + pid
 
-    player = "=HYPERLINK(\"" + playerLink + "\", \"" + playerName + "\")"
+    player = "=HYPERLINK(\"" + playerLink + "\", \"" + get_hyperlink_friendly(playerName) + "\")"
 
     return player, percentage
 
@@ -150,12 +155,13 @@ def get_data(response):
             songInfo = []
             uid = song["uid"]
             url = "https://scoresaber.com/leaderboard/" + str(uid)
-            songInfo.append("=HYPERLINK(\"" + url + "\", \"" + song["name"] + "\")")
+            songInfo.append("=HYPERLINK(\"" + url + "\", \"" + get_hyperlink_friendly(song["name"]) + "\")")
             songInfo.append(song["levelAuthorName"])
             songInfo.append(get_diff(song["diff"]))
             songInfo.append(song["stars"])
             for x in get_song_data(song):
                 songInfo.append(x)
+            songInfo.append(song["uid"])
             data.append(songInfo)
             print(songs_calculated, ": ", song["name"])
         # back off for a bit
@@ -242,15 +248,18 @@ def get_dates(data):
         # print(song)
         hyperlink = song[4]
         players.add((decode_player(hyperlink), decode_id(hyperlink)))
-    print(players)
+    # print(players)
     playerRankedOnes = {}
+    for song in data:
+        player = decode_player(song[4])
+        playerRankedOnes[player] = playerRankedOnes.get(player, []) + [song[6]]
     for player in players:
-        playerRankedOnes[player[0]] = get_number_ones(player[1])
+        playerRankedOnes[player[0]] = get_number_ones(player[1], playerRankedOnes[player[0]])
     for song in data:
         player = decode_player(song[4])
         for numberone in playerRankedOnes[player]:
             if numberone[0] == decode_song(song[0]) and numberone[1] == song[1] and numberone[2] == song[2]:
-                song.append(get_date(numberone[3]))
+                song[len(song) - 1] = get_date(numberone[3])
     return data
 
 def main():
