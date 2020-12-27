@@ -26,6 +26,7 @@ FILE_NAME = "raw_pp.json"
 WAIT_BETWEEN_LEADERBOARD_CALLS = 1
 WAIT_BETWEEN_API_CALLS = 1
 BACKOFF_TIME = 60 * 10
+WAIT_BETWEEN_RESPONSE_ERROR = 70
 songs_calculated = 0
 
 fields = ["Name", "Mapper", "Difficulty", "Star", "Player", "Acc", "Date"]
@@ -57,13 +58,23 @@ def sleep_until(sleep_time):
     # print("Done sleeping")
 
 def get_response_rate_limited(url):
-    response = requests.get(url)
-    if "x-ratelimit-remaining" not in response.headers:
-        return response
-    # Fuzzing this a bit cause otherwise it rate limits early
-    if (int(response.headers["x-ratelimit-remaining"])) <= 2:
-        sleep_until(int(response.headers["x-ratelimit-reset"]))
-    return response
+    count = 0
+    MAX_COUNT = 10
+    while count < MAX_COUNT:
+        try:
+            response = requests.get(url)
+            if "x-ratelimit-remaining" not in response.headers:
+                return response
+            # Fuzzing this a bit cause otherwise it rate limits early
+            if (int(response.headers["x-ratelimit-remaining"])) <= 2:
+                sleep_until(int(response.headers["x-ratelimit-reset"]))
+            return response
+        except:
+            print("Ran into error getting response, sleeping for {} seconds".format(WAIT_BETWEEN_RESPONSE_ERROR))
+            time.sleep(WAIT_BETWEEN_RESPONSE_ERROR)
+            count+=1
+    raise Exception("Error getting response from {}".format(url))
+
 
 # strip extraneous data from scoresaber difficulty
 def get_diff(difficulty):
@@ -78,17 +89,21 @@ def get_number_ones(id, rankOnes):
     done = False
     l = []
     while not done:
-        response = get_response_rate_limited(url + str(page))
-        for song in response.json()["scores"]:
-            if song["pp"] <= 0:
-                done = True
-                break
-
-            if song["leaderboardId"] in rankOnes:
-                l.append((song["leaderboardId"], song["timeSet"]))
-                if len(rankOnes) == len(l):
+        try:
+            response = get_response_rate_limited(url + str(page))
+            for song in response.json()["scores"]:
+                if song["pp"] <= 0:
                     done = True
-        page+=1
+                    break
+
+                if song["leaderboardId"] in rankOnes:
+                    l.append((song["leaderboardId"], song["timeSet"]))
+                    if len(rankOnes) == len(l):
+                        done = True
+            page+=1
+        except json.decoder.JSONDecodeError as e:
+            print("Error with response, trying again in {} seconds: {}".format(WAIT_BETWEEN_RESPONSE_ERROR, e))
+            time.sleep(WAIT_BETWEEN_RESPONSE_ERROR)
     return l
 
 def open_url(url):
