@@ -80,7 +80,7 @@ def get_date(unfiltered_date):
 
 def find_number_one(leaderboard, maxScore):
     numberone = leaderboard["scores"][0]
-    percentage = round(numberone["modifiedScore"] / maxScore * 100, 2)
+    percentage = round(numberone["modifiedScore"] / (maxScore * numberone["multiplier"]) * 100, 2)
     playerName = numberone["leaderboardPlayerInfo"]["name"]
     pid = numberone["leaderboardPlayerInfo"]["id"]
     playerLink = "https://scoresaber.com/u/" + pid
