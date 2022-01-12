@@ -32,7 +32,7 @@ SHEET_NAME = "numberones.csv"
 SHEET_ID = "1c9ZNa5G4o9DI54W4gh_97JmwscoErLz0L0yyH1to2dQ"
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-MAIN_RANGE = "Main!A2:G"
+MAIN_RANGE = "Main!A2:H"
 TIME_RANGE = "Info!B1"
 
 SCORE_SABER_URL = "https://new.scoresaber.com"
@@ -83,8 +83,9 @@ def find_number_one(leaderboard, maxScore):
 
     player = "=HYPERLINK(\"" + playerLink + "\", \"" + get_hyperlink_friendly(playerName) + "\")"
     date = get_date(numberone["timeSet"])
+    pp = round(numberone["pp"], 2)
 
-    return player, percentage, date
+    return player, percentage, date, pp
 
 
 # strip extraneous data from scoresaber difficulty
