@@ -26,7 +26,7 @@ FILE_NAME = "raw_pp.json"
 WAIT_BETWEEN_LEADERBOARD_CALLS = 1
 WAIT_BETWEEN_API_CALLS = 1
 BACKOFF_TIME = 60 * 10
-WAIT_BETWEEN_RESPONSE_ERROR = 70
+WAIT_BETWEEN_RESPONSE_ERROR = 30
 songs_calculated = 0
 
 fields = ["Name", "Mapper", "Difficulty", "Star", "Player", "Acc", "Date"]
@@ -75,6 +75,21 @@ def get_response_rate_limited(url):
             count+=1
     raise Exception("Error getting response from {}".format(url))
 
+def get_date(unfiltered_date):
+    return unfiltered_date[:unfiltered_date.find("T")]
+
+def find_number_one(leaderboard, maxScore):
+    numberone = leaderboard["scores"][0]
+    percentage = round(numberone["modifiedScore"] / maxScore * 100, 2)
+    playerName = numberone["leaderboardPlayerInfo"]["name"]
+    pid = numberone["leaderboardPlayerInfo"]["id"]
+    playerLink = "https://scoresaber.com/u/" + pid
+
+    player = "=HYPERLINK(\"" + playerLink + "\", \"" + get_hyperlink_friendly(playerName) + "\")"
+    date = get_date(numberone["timeSet"])
+
+    return player, percentage, date
+
 
 # strip extraneous data from scoresaber difficulty
 def get_diff(difficulty):
@@ -106,53 +121,24 @@ def get_number_ones(id, rankOnes):
             time.sleep(WAIT_BETWEEN_RESPONSE_ERROR)
     return l
 
-def open_url(url):
-    done = False
-    while not done:
-        try:
-            response = urlopen(urllib.request.Request(url, headers={"User-Agent": "ScoreSaber Ranked #1s Tracker"}))
-            done = True
-        # back off, sleep for 10 minutes
-        except Exception as e:
-            if DEBUG:
-                print("Ran into error opening url: " + url + ", sleeping for 10 minutes")
-                print(e)
-            sleep(BACKOFF_TIME)
-    return response
-
 # write the json data to the output file
 def write_data(data, file):
     with open(file, "w") as output:
         json.dump(data, output)
 
-def find_number_one(html):
-    soup = BeautifulSoup(html, "lxml")
-
-    percentages = soup.findAll("td", {"class": "percentage"})
-    percentage = float(percentages[0].text.strip()[:-1])
-
-    players = soup.findAll("span", {"class": "songTop pp"})
-    playerName = str(players[0])[str(players[0]).find("> ") + 2:str(players[0]).find("</span>")]
-
-    players = soup.findAll("td", {"class": "player"})
-    # print(players[0])
-    delim = "href=\""
-    pid = str(players[0])[str(players[0]).find(delim) + len(delim):]
-    pid = pid[:pid.find("\"")]
-    playerLink = "https://scoresaber.com" + pid
-
-    player = "=HYPERLINK(\"" + playerLink + "\", \"" + get_hyperlink_friendly(playerName) + "\")"
-
-    return player, percentage
-
 def get_song_data(song):
-    uid = song["uid"]
+    id = song["id"]
     
-    url = "https://scoresaber.com/leaderboard/" + str(uid)
+    url = "https://scoresaber.com/api/leaderboard/by-id/" + str(id) + "/scores"
     try:
-        return find_number_one(open_url(url).read())
+        response = get_response_rate_limited(url)
+
+        url2 = "https://scoresaber.com/api/leaderboard/by-id/" + str(id) + "/info"
+        response2 = get_response_rate_limited(url2)
+
+        return find_number_one(response.json(), response2.json()["maxScore"])
     except Exception as e:
-        print("ERROR: Couldn't get info for " +  song["name"] + " - " + str(song["id"]) + ": " + url + " " +  str(e))
+        print("ERROR: Couldn't get info for " +  song["songName"] + " - " + str(song["id"]) + ": " + url + " " +  str(e))
         return []
 
 # get the data for all the songs returned in the api call
@@ -160,27 +146,23 @@ def get_data(response):
     global songs_calculated
     done = False
     data = []
-    api_data = json.load(response)
     # stop once every song has been gathered or song we already scraped data for
-    for song in api_data["songs"]:
+    for song in response["leaderboards"]:
         # skipped unranked songs
-        if song["ranked"] == 1:
-            songs_calculated+=1
-            songInfo = []
-            uid = song["uid"]
-            url = "https://scoresaber.com/leaderboard/" + str(uid)
-            songInfo.append("=HYPERLINK(\"" + url + "\", \"" + get_hyperlink_friendly(song["name"]) + "\")")
-            songInfo.append(song["levelAuthorName"])
-            songInfo.append(get_diff(song["diff"]))
-            songInfo.append(song["stars"])
-            for x in get_song_data(song):
-                songInfo.append(x)
-            songInfo.append(song["uid"])
-            data.append(songInfo)
-            print(songs_calculated, ": ", song["name"])
-        # back off for a bit
-        sleep(WAIT_BETWEEN_LEADERBOARD_CALLS)
-    if len(api_data["songs"]) == 0:
+        songs_calculated+=1
+        songInfo = []
+        id = song["id"]
+        url = "https://scoresaber.com/leaderboard/" + str(id)
+        songInfo.append("=HYPERLINK(\"" + url + "\", \"" + get_hyperlink_friendly(song["songName"] + " " + song["songSubName"]) + "\")")
+        songInfo.append(song["levelAuthorName"])
+        songInfo.append(get_diff(song["difficulty"]["difficultyRaw"]))
+        songInfo.append(song["stars"])
+        for x in get_song_data(song):
+            songInfo.append(x)
+        data.append(songInfo)
+        print(songs_calculated, ": ", song["songName"])
+
+    if len(response["leaderboards"]) == 0:
         done = True
 
     return (data, done)
@@ -237,57 +219,15 @@ def update_spreadsheet(rows):
     sheet.values().update(spreadsheetId=SHEET_ID, range=TIME_RANGE,
                             valueInputOption="RAW", body=body).execute()
 
-def decode_id(hyperlink):
-    hyperlink = hyperlink[hyperlink.find("\"") + 1:]
-    hyperlink = hyperlink[:hyperlink.find("\"")]
-    hyperlink = hyperlink[hyperlink.rfind("/") + 1:]
-    return hyperlink
-
-def decode_player(hyperlink):
-    hyperlink = hyperlink[:hyperlink.rfind("\"")]
-    hyperlink = hyperlink[hyperlink.rfind("\"") + 1:]
-    return hyperlink
-
-def decode_song(hyperlink):
-    hyperlink = hyperlink[:hyperlink.rfind("\"")]
-    hyperlink = hyperlink[hyperlink.rfind("\"") + 1:]
-    return hyperlink
-
-def get_date(unfiltered_date):
-    return unfiltered_date[:unfiltered_date.find("T")]
-
-def get_dates(data):
-    players = set()
-    for song in data:
-        # print(song)
-        hyperlink = song[4]
-        players.add((decode_player(hyperlink), decode_id(hyperlink)))
-    # print(players)
-    playerRankedOnes = {}
-    for song in data:
-        player = decode_player(song[4])
-        playerRankedOnes[player] = playerRankedOnes.get(player, []) + [song[len(song) - 1]]
-    i = 0
-    for player in players:
-        i+=1
-        print("Player ", i, "/", len(players))
-        playerRankedOnes[player[0]] = get_number_ones(player[1], playerRankedOnes[player[0]])
-    for song in data:
-        player = decode_player(song[4])
-        for numberone in playerRankedOnes[player]:
-            if numberone[0] == song[len(song) - 1]:
-                song[len(song) - 1] = get_date(numberone[1])
-    return data
-
 def main():
     data = []
 
     done = False
     page = 1
     while not done:
-        url = "http://scoresaber.com/api.php?function=get-leaderboards&cat=1&page=" + str(page) + "&limit=" + str(PAGE_LIMIT) +"&ranked=1"
-        response = open_url(url)
-        a = get_data(response)
+        url = url = "https://scoresaber.com/api/leaderboards?ranked=1&page=" + str(page)
+        response = get_response_rate_limited(url)
+        a = get_data(response.json())
         done = a[1]
         for x in a[0]:
             data.append(x)
@@ -295,7 +235,6 @@ def main():
         sleep(WAIT_BETWEEN_API_CALLS)
         page+=1
 
-    data = get_dates(data)
     return data
 
 if __name__ == "__main__":
