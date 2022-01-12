@@ -1,6 +1,6 @@
 import csv
 import json
-from urllib.request import urlopen, Request
+from urllib.request import urlopen
 import os
 import time
 from time import sleep
