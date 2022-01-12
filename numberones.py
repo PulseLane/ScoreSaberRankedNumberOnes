@@ -1,9 +1,6 @@
 import csv
 import json
-import urllib.request
 from urllib.request import urlopen, Request
-import lxml
-from bs4 import BeautifulSoup
 import os
 import time
 from time import sleep
